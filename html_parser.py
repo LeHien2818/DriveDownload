@@ -13267,12 +13267,22 @@ class HTMLParser:
             file_name_container = type_container.find(class_="KL4NAf")
             file_name = file_name_container.get('data-tooltip')
             file_type = file_name.split('.')[-1]
+            file_name = file_name.replace(f".{file_type}", "")
             # Skip file with extension which is not pdf
             if (file_type == "pdf"):
                 print(file_name)
                 data = {
                     'id': element.get('data-id'),
                     'name': file_name,
+                    'type': file_type,
+                }
+                files.append(data)
+            else:
+                print(file_name)
+                data = {
+                    'id': element.get('data-id'),
+                    'name': file_name ,
+                    'type': file_type,
                 }
                 files.append(data)
         print(len(files))
@@ -13315,7 +13325,8 @@ class HTMLParser:
             file_name = file['name']
             files_info.append({
                 'name': file_name,
-                'api': file_api
+                'api': file_api,
+                'type': file['type']
             })
         for folder in folders:
             folder_api = f"{prefix_folder_api}{folder['id']}"

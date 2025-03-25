@@ -168,9 +168,10 @@ def folder_handler(folder_url, datakey, switch_vpn):
 
     if(len(folders_info) == 0):
         for file in files_info:
-            info_path += f"/{file['name']}"
-            download_file(file_url=file['api'], filename=file['name'], datakey=datakey, path=info_path, switch_vpn=switch_vpn)
-            info_path = remove_last_path(info_path)
+            if(file['type'] == "pdf"):
+                info_path += f"/{file['name']}"
+                download_file(file_url=file['api'], filename=file['name'], datakey=datakey, path=info_path, switch_vpn=switch_vpn)
+                info_path = remove_last_path(info_path)
     else:
         for folder in folders_info:
             category_info = f"{folder['name']}"
