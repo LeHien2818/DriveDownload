@@ -6,41 +6,34 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
 from PIL import Image
 from PyPDF2 import PdfMerger
 
 import os
+import shutil
 import time
 import sqlite3
 import requests
-import uuid
 import random
-import subprocess
 
-import pandas as pd
 from bs4 import BeautifulSoup
-
+import argparse
 
 from html_parser import HTMLParser
-from json_template import TEMPLATE_JSON
-
-connection = sqlite3.connect("mini_storage.db")
+connection = sqlite3.connect("storage.db")
 cursor = connection.cursor()
 
 options = Options()
 
-prefs = {
-    "download.default_directory": "./Storage",  # Set download folder
-    "download.prompt_for_download": False,  # No prompt
-    "download.directory_upgrade": True,
-    "plugins.always_open_pdf_externally": True  # Open PDFs externally instead of Chrome viewer
-}
 
 options.add_argument('--disable-dev-shm-usage')
-options.add_experimental_option('prefs', prefs)
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Tải file từ Google Drive và xử lý PDF/DOCX")
+    parser.add_argument('--url', type=str, required=True,
+                        help='URL của file hoặc thư mục Google Drive để tải')
+    return parser.parse_args()
 
 # Constant for running
 step_per_page_doc = 15
@@ -55,32 +48,11 @@ driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), opti
 # driver = uc.Chrome(options=options)
 driver.get("https://drive.google.com")
 
-NORDVPN_COUNTRIES = ["us", "uk", "de", "fr", "ca", "au"]
-
-def switch_vpn_server():
-    """Thay đổi server VPN NordVPN ngẫu nhiên."""
-    country = random.choice(NORDVPN_COUNTRIES)
-    try:
-        # Ngắt kết nối VPN hiện tại
-        subprocess.run(["nordvpn", "disconnect"], check=True)
-        time.sleep(1)  # Đợi ngắt kết nối hoàn tất
-        
-        # Kết nối đến server mới
-        print(f"Đang kết nối đến server NordVPN tại {country.upper()}...")
-        subprocess.run(["nordvpn", "connect", country], check=True)
-        time.sleep(5)  # Đợi kết nối ổn định
-        print(f"Đã kết nối đến {country.upper()}!")
-    except subprocess.CalledProcessError as e:
-        print(f"Lỗi khi thay đổi server VPN: {e}")
-        return False
-    return True
 
 def createDatabase():
     cursor.execute("""CREATE TABLE IF NOT EXISTS files (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            file_identifier TEXT,
                             name TEXT,
-                            datakey TEXT,
                             path TEXT
                         )""")
    
@@ -125,41 +97,61 @@ jspdf.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.3.2/jspdf.min.js' ;
 document.body.appendChild(jspdf);
 """
 
-def download_file(file_url, filename="download.pdf", datakey="", path="", switch_vpn=False):
-    if switch_vpn:
-        switch_vpn_server()
+set_opacity_js = """
+    document.querySelectorAll('.ndfHFb-c4YZDc-q77wGc').forEach(element => {
+    element.style.setProperty('opacity', '0', 'important');
+});
+"""
+
+def download_file(file_url, filename="download.pdf", path=""):
+    storage_dir = "doc_data"
+    if not os.path.exists(storage_dir):
+        os.makedirs(storage_dir)
+    
     time.sleep(random.uniform(1, 5))
     driver.get(file_url)
     time.sleep(2)
     action = ActionChains(driver)
     pages_element = driver.find_element(By.CSS_SELECTOR, ".ndfHFb-c4YZDc-DARUcf-NnAfwf-j4LONd")
     pages_number = int(pages_element.text)
-    print(pages_number)
+    # print(pages_number)
 
     for _ in range(step_per_page_pdf*pages_number):  # Adjust the range for more scrolling
         action.key_down(Keys.ARROW_DOWN).key_up(Keys.ARROW_DOWN).perform()
         time.sleep(0.05)
 
-    unique_id = uuid.uuid4()
-    unique_id = str(unique_id).replace("-", "")
-    insert_query = "INSERT INTO files (file_identifier, name, datakey, path) VALUES (?, ?, ?, ?)"
-    cursor.execute(insert_query, (unique_id, filename, datakey, path))
+    insert_query = "INSERT INTO files (name, path) VALUES (?, ?)"
+    cursor.execute(insert_query, (filename, path))
     connection.commit()
 
     time.sleep(0.5)
     driver.execute_script(js_trusted_policy)
-    filename = f"{filename}-{unique_id}.pdf"
+    filename = f"{filename}.pdf"
     custom_js_download = js_download.replace('"download.pdf"', f'"{filename}"')
+    filename = filename.replace(":", "_")
     driver.execute_script(custom_js_download)
     time.sleep(3)
+    
+    # move file to the expected location
+    download_default_path = "/home/lehien/Downloads" # change this to your default download folder
+    file_source_path = f"{download_default_path}/{filename}"
+    dir_path = remove_last_path(path_str=path)
+    destination_path = f"./doc_data{dir_path}"
 
-def download_file_docx(file_url, filename="download.pdf", datakey="", path="", switch_vpn=False):
+    if not os.path.exists(destination_path):
+        os.makedirs(destination_path)
+    
+    shutil.move(str(file_source_path), str(destination_path))
+
+
+
+
+def download_file_docx(file_url, filename="download.pdf", path=""):
     output_dir = "screenshots"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    if switch_vpn:
-        switch_vpn_server()
+    
     # time.sleep(random.uniform(1, 5))
     driver.get(file_url)
     driver.set_window_size(1024, 1024)
@@ -168,21 +160,21 @@ def download_file_docx(file_url, filename="download.pdf", datakey="", path="", s
     action = ActionChains(driver)
     pages_element = driver.find_element(By.CSS_SELECTOR, ".ndfHFb-c4YZDc-DARUcf-NnAfwf-j4LONd")
     pages_number = int(pages_element.text)
-    print(pages_number)
-
+    # print(pages_number)
+    driver.execute_script(set_opacity_js)
     screenshots = []
-    for i in range(0, pages_number * 2):  # Adjust the range for more scrolling
+    for i in range(0, pages_number * 2): 
+        driver.execute_script(set_opacity_js) # Adjust the range for more scrolling
         screenshot_path= f"{output_dir}/page_{i}.png"
         driver.save_screenshot(screenshot_path)
         screenshots.append(screenshot_path)
         for _ in range(0, step_per_page_doc):
             action.key_down(Keys.ARROW_DOWN).key_up(Keys.ARROW_DOWN).perform()
             time.sleep(0.1)
+    driver.execute_script(set_opacity_js)
 
-    unique_id = uuid.uuid4()
-    unique_id = str(unique_id).replace("-", "")
-    insert_query = "INSERT INTO files (file_identifier, name, datakey, path) VALUES (?, ?, ?, ?)"
-    cursor.execute(insert_query, (unique_id, filename, datakey, path))
+    insert_query = "INSERT INTO files (name, path) VALUES (?, ?)"
+    cursor.execute(insert_query, (filename, path))
     connection.commit()
 
     pdf_merger = PdfMerger()
@@ -195,13 +187,15 @@ def download_file_docx(file_url, filename="download.pdf", datakey="", path="", s
         pdf_merger.append(pdf_path)
 
     # Save the combined PDF
-    storage_dir = "doc_storage"
+    # storage_dir = "doc_data"
+    dir_path = remove_last_path(path_str=path)
+    storage_dir = f"./doc_data{dir_path}"
 
     if not os.path.exists(storage_dir):
         os.makedirs(storage_dir)
 
 
-    output_pdf = os.path.join(storage_dir, f"{filename}-{unique_id}.pdf")
+    output_pdf = os.path.join(storage_dir, f"{filename}.pdf")
     pdf_merger.write(output_pdf)
     pdf_merger.close()
 
@@ -220,26 +214,36 @@ def remove_last_path(path_str):
 
 info_path = ""
 
-def folder_handler(folder_url, datakey, switch_vpn):
+# DFS traversal
+def folder_handler(folder_url):
     global info_path
+    # print(info_path)
     response = requests.get(folder_url)
     html_content = response.text
     parser = HTMLParser(html_content=html_content)
     self_item_name = parser.name
-    info_path += f"/{self_item_name}"
+    # info_path += f"/{self_item_name}"
     files_info, folders_info = parser.parse_html()
-
-    if(len(folders_info) == 0):
+    if(len(files_info) != 0):
         for file in files_info:
             if(file['type'] == "pdf"):
                 info_path += f"/{file['name']}"
-                download_file(file_url=file['api'], filename=file['name'], datakey=datakey, path=info_path, switch_vpn=switch_vpn)
-                info_path = remove_last_path(info_path)
+                download_file(file_url=file['api'], filename=file['name'], path=info_path)
             else:
                 info_path += f"/{file['name']}"
-                download_file_docx(file_url=file['api'], filename=file['name'], datakey=datakey, path=info_path, switch_vpn=switch_vpn)
-                info_path = remove_last_path(info_path)
+                download_file_docx(file_url=file['api'], filename=file['name'], path=info_path)
+            print('-----------------before-----------------')
+            print(info_path)
+            info_path = remove_last_path(info_path)
+            print('----------------after remove------------')
+            print(info_path)
+
+    if(len(folders_info) == 0):
+        print("End nested traversing!")
     else:
+        print("-----------------------------------------------")
+        print(len(folders_info))
+        print("---------------length--------------------------")
         for folder in folders_info:
             category_info = f"{folder['name']}"
             if "Google Drive" in category_info:
@@ -250,44 +254,49 @@ def folder_handler(folder_url, datakey, switch_vpn):
                 if "Google Drive" in category_info:
                     category_info = category_info.replace("Google Drive","")
             info_path += f"/{category_info}"
-            folder_handler(f"{folder_url}/{folder['api']}", datakey, switch_vpn=switch_vpn)
+            folder_handler(f"{folder_url}/{folder['api']}")
+            
             info_path = remove_last_path(info_path)
+            
 
     
 
-def download_handler(target_url, datakey, switch_vpn):
+def download_handler(target_url):
+    createDatabase()
+    storage_dir = "doc_data"
+    if os.path.exists(storage_dir):
+        try:
+            shutil.rmtree(storage_dir)  # Xóa cưỡng chế thư mục và nội dung
+            print(f"Đã xóa thư mục {storage_dir}")
+        except PermissionError:
+            print(f"Lỗi: Không có quyền xóa thư mục {storage_dir}")
+        except OSError as e:
+            print(f"Lỗi khi xóa thư mục {storage_dir}: {e}")
+    
     if target_url.startswith(file_prefix):
         response = requests.get(target_url)
         html_content = response.text
         soup = BeautifulSoup(html_content)
         title_element = soup.find("title")
         if "pdf" in str(title_element.text):
-            download_file(target_url, filename= title_element.text, datakey=datakey, switch_vpn=switch_vpn)
+            download_file(target_url, filename= title_element.text)
         else:
-            download_file_docx(target_url, filename=title_element.text, datakey=datakey, switch_vpn=switch_vpn)
+            download_file_docx(target_url, filename=title_element.text)
     else:
-        folder_handler(target_url, datakey=datakey, switch_vpn=switch_vpn)
+        folder_handler(target_url)
 
 createDatabase()
 
-# download_handler(target_url="https://drive.google.com/drive/u/0/folders/1xVCcvUHQoBX3cEZf3ydKovKgJd4F03IF", datakey="1234")
-
 def main_driver():
-    storage_df = pd.read_csv("documents.csv")
-    used_df = storage_df[~storage_df['url'].isnull()]
+    # Nhận URL từ terminal
+    args = parse_args()
+    target_url = args.url
+    download_handler(target_url=target_url)
 
-    createDatabase()
-    i = 0
-    for datakey, url in zip(used_df['datakey'], used_df['url']):
-        switch_vpn = (i % 10 == 0)
-        download_handler(url, datakey, switch_vpn)
-        i = i + 1
-        
-# main_driver()
-# download_file(file_url="https://docs.google.com/file/d/1QNZsIXCeeFc_-wE8lFwMbtuuScnq_qOG/view", filename="CD1-tinh don dieu ham so", datakey="1234")
-download_handler(target_url="https://drive.google.com/drive/folders/1Ychbx12sZFuGznf5NhIgYLGw1LNfA44f", datakey="123456", switch_vpn=False)
+if __name__ == '__main__':
+    main_driver()
+    driver.quit()
 
-driver.quit()
 
 
 
