@@ -29,7 +29,7 @@
 - screenshots is an empty folder used for saving temporary images when gathering from links. Don't remove or change the name
 - link_storage.db is all the document links in the tailieuchuan.vn. Some of them is empty because the website hasn't uploaded yet.
 - jspdf.min.js is the alternative solution if the link https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.3.2/jspdf.min.js dead.
-- install sqlite viewer extension on vscodevscode to observe data in "*.db" files.
+- install sqlite viewer extension on vscode to observe data in "*.db" files.
 ## Features
 - Can download folders and files which is download restricted and only viewable from Google drive.
 - Currently supporting file format: pdf, docx, doc, ppt.
